@@ -7,6 +7,7 @@ import os
 from networking import KioskNetwork
 from ui import KioskUI
 from config import ROOM_CONFIG
+from video_server import VideoServer
 
 class KioskApp:
     def __init__(self):
@@ -19,6 +20,10 @@ class KioskApp:
         self.assigned_room = None
         self.hints_requested = 0
         self.start_time = None
+        
+        # Add video server
+        self.video_server = VideoServer()
+        self.video_server.start()
         
         self.ui = KioskUI(self.root, self.computer_name, ROOM_CONFIG, self)
         self.network = KioskNetwork(self.computer_name, self)
@@ -77,6 +82,7 @@ class KioskApp:
     def on_closing(self):
         print("Shutting down kiosk...")
         self.network.shutdown()
+        self.video_server.stop()  # Add this line
         self.root.destroy()
         sys.exit(0)
         
