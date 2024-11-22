@@ -23,7 +23,8 @@ class KioskApp:
         
         # Add video server
         self.video_server = VideoServer()
-        self.video_server.start()
+        print("Starting video server...")
+        self.video_server.start()  # This is now non-blocking
         
         self.ui = KioskUI(self.root, self.computer_name, ROOM_CONFIG, self)
         self.network = KioskNetwork(self.computer_name, self)

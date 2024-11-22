@@ -3,9 +3,10 @@ from PIL import Image, ImageTk
 # video_server.py
 import cv2
 import socket
-import pickle
 import struct
 import threading
+import numpy as np
+import time
 
 class VideoServer:
     def __init__(self, port=8089):
@@ -13,51 +14,78 @@ class VideoServer:
         self.running = False
         self.server_socket = None
         self.current_client = None
+        self.fps_limit = 30
+        self.frame_time = 1/self.fps_limit
+        self.camera = None
         
     def check_camera(self):
+        """Non-blocking camera check"""
+        print("Checking camera availability...")
         try:
-            cap = cv2.VideoCapture(0)
+            cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Try DirectShow first
             if not cap.isOpened():
                 cap.release()
-                print("Failed to open camera")
-                return False
-            ret, frame = cap.read()
+                print("DirectShow failed, trying default")
+                cap = cv2.VideoCapture(0)  # Fallback to default
+                if not cap.isOpened():
+                    print("Failed to open camera")
+                    return False
+            
+            # Set camera properties
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            cap.set(cv2.CAP_PROP_FPS, self.fps_limit)
+            
+            # Try to get a frame with timeout
+            start_time = time.time()
+            while time.time() - start_time < 2:  # 2 second timeout
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    cap.release()
+                    print("Camera check successful")
+                    return True
+            
             cap.release()
-            if not ret or frame is None:
-                print("Failed to capture frame")
-                return False
-            print("Camera check successful")
-            return True
+            print("Camera frame capture timed out")
+            return False
+            
         except Exception as e:
             print(f"Camera check error: {e}")
+            if cap:
+                cap.release()
             return False
 
     def start(self):
-        if not self.check_camera():
-            print("Camera check failed")
-            return False
-            
-        try:
-            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server_socket.bind(('', self.port))
-            self.server_socket.listen(1)
-            self.running = True
-            threading.Thread(target=self.accept_connections, daemon=True).start()
-            print("Video server started successfully")
-            return True
-        except Exception as e:
-            print(f"Failed to start video server: {e}")
-            return False
+        """Non-blocking server start"""
+        def startup():
+            if not self.check_camera():
+                print("Camera check failed")
+                return False
+                
+            try:
+                self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.server_socket.bind(('', self.port))
+                self.server_socket.listen(1)
+                self.running = True
+                self.accept_connections()  # Start accepting connections
+                return True
+            except Exception as e:
+                print(f"Failed to start video server: {e}")
+                return False
+        
+        # Run startup in separate thread
+        threading.Thread(target=startup, daemon=True).start()
         
     def accept_connections(self):
+        print("Video server ready for connections")
         while self.running:
             try:
-                print("Waiting for video connection...")
                 client, addr = self.server_socket.accept()
-                print(f"Video connection from {addr}")
+                print(f"New video connection from {addr}")
                 if self.current_client:
                     self.current_client.close()
                 self.current_client = client
+                client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 threading.Thread(target=self.stream_video, args=(client,), daemon=True).start()
             except Exception as e:
                 if self.running:
@@ -66,25 +94,33 @@ class VideoServer:
                 
     def stream_video(self, client):
         print("Starting video stream")
-        cap = cv2.VideoCapture(0)
         try:
+            cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Try DirectShow first
+            if not cap.isOpened():
+                cap = cv2.VideoCapture(0)  # Fallback to default
+                if not cap.isOpened():
+                    print("Failed to open camera for streaming")
+                    return
+                    
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            cap.set(cv2.CAP_PROP_FPS, self.fps_limit)
+            
             while self.running and cap.isOpened():
                 ret, frame = cap.read()
                 if ret:
-                    # Resize frame to reduce network load
-                    frame = cv2.resize(frame, (640, 480))
-                    # Convert to JPEG for better compression
-                    _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                    data = pickle.dumps(buffer)
-                    message = struct.pack("Q", len(data)) + data
+                    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 60]
+                    _, buffer = cv2.imencode('.jpg', frame, encode_param)
+                    size = len(buffer)
                     try:
-                        client.sendall(message)
+                        client.sendall(struct.pack("Q", size))
+                        client.sendall(buffer)
                     except:
-                        print("Client disconnected")
                         break
                 else:
                     print("Failed to get frame")
                     break
+                    
         except Exception as e:
             print(f"Streaming error: {e}")
         finally:
@@ -96,6 +132,12 @@ class VideoServer:
         print("Stopping video server")
         self.running = False
         if self.current_client:
-            self.current_client.close()
+            try:
+                self.current_client.close()
+            except:
+                pass
         if self.server_socket:
-            self.server_socket.close()
+            try:
+                self.server_socket.close()
+            except:
+                pass
