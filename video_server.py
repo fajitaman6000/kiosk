@@ -14,7 +14,7 @@ class VideoServer:
         self.running = False
         self.server_socket = None
         self.current_client = None
-        self.fps_limit = 30
+        self.fps_limit = 15
         self.frame_time = 1/self.fps_limit
         self.camera = None
         
