@@ -24,6 +24,10 @@ class KioskNetwork:
         self.listen_thread.start()
         
     def send_message(self, message):
+        if message.get('type') == 'kiosk_announce':
+            # Ensure we send complete stats
+            complete_stats = self.message_handler.get_stats()
+            message.update(complete_stats)
         self.socket.sendto(json.dumps(message).encode(), ('255.255.255.255', 12345))
         
     def announce_presence(self):
@@ -35,7 +39,7 @@ class KioskNetwork:
                     **stats
                 }
                 self.send_message(message)
-                time.sleep(5)
+                time.sleep(1)  # Update every second
             except:
                 break
                 
@@ -58,4 +62,3 @@ class KioskNetwork:
             self.send_message(message)
         finally:
             self.socket.close()
-

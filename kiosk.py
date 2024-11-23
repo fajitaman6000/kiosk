@@ -21,13 +21,19 @@ class KioskApp:
         self.hints_requested = 0
         self.start_time = None
         
+        # Initialize network first since timer needs it
+        self.network = KioskNetwork(self.computer_name, self)
+        
         # Add video server
         self.video_server = VideoServer()
         print("Starting video server...")
-        self.video_server.start()  # This is now non-blocking
+        self.video_server.start()
+        
+        # Create timer
+        from kiosk_timer import KioskTimer
+        self.timer = KioskTimer(self.root, self.network)
         
         self.ui = KioskUI(self.root, self.computer_name, ROOM_CONFIG, self)
-        self.network = KioskNetwork(self.computer_name, self)
         
         self.ui.setup_waiting_screen()
         self.network.start_threads()
@@ -39,7 +45,8 @@ class KioskApp:
             'computer_name': self.computer_name,
             'room': self.assigned_room,
             'total_hints': self.hints_requested,
-            'room_time': int(time.time() - (self.start_time or time.time()))
+            'timer_time': self.timer.time_remaining,
+            'timer_running': self.timer.is_running
         }
         
     def handle_message(self, msg):
@@ -54,6 +61,10 @@ class KioskApp:
         elif msg['type'] == 'hint' and self.assigned_room:
             if msg.get('room') == self.assigned_room:
                 self.root.after(0, lambda t=msg['text']: self.show_hint(t))
+                
+        elif msg['type'] == 'timer_command' and msg['computer_name'] == self.computer_name:
+            minutes = msg.get('minutes')
+            self.timer.handle_command(msg['command'], minutes)
                 
     def request_help(self):
         if not self.ui.hint_cooldown:

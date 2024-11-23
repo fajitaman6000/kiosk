@@ -63,7 +63,8 @@ class KioskUI:
         
     def setup_room_interface(self, room_number):
         for widget in self.root.winfo_children():
-            widget.destroy()
+            if widget is not self.message_handler.timer.timer_frame:  # Keep timer
+                widget.destroy()
             
         self.background_image = self.load_background(room_number)
         if self.background_image:
@@ -77,13 +78,16 @@ class KioskUI:
             fg='white', bg='black',
             font=('Arial', 36)
         )
-        name_label.pack(pady=20)
+        name_label.pack(pady=(80,20))  # Add top padding to account for timer
         
         if self.current_hint:
             self.show_hint(self.current_hint)
             
         if not self.hint_cooldown:
             self.create_help_button()
+            
+        # Ensure timer stays on top
+        self.message_handler.timer.lift_to_top()
             
     def create_help_button(self):
         if self.help_button is None:
